@@ -1,10 +1,11 @@
 {
   "name": "pi-rts-alerts",
   "version": "1.0.0",
-  "private": true,
+  "private": false,
   "description": "Pi extension that plays iconic RTS game sounds (Age of Empires 2, StarCraft II, Warcraft III, Red Alert 2) on AI lifecycle events using ffplay — no windows, no popups",
   "keywords": [
     "pi",
+    "pi-package",
     "pi-extension",
     "audio",
     "notifications",
@@ -27,7 +28,6 @@
     "url": "git+https://github.com/evanokeefe39/pi-rts-alerts.git"
   },
   "type": "module",
-  "main": "src/extension.ts",
   "files": [
     "src",
     "scripts",
@@ -36,8 +36,9 @@
   ],
   "scripts": {
     "install:sounds": "node scripts/download-sounds.mjs",
-    "postinstall": "node scripts/link-types.mjs",
-    "test": "vitest run",
+    "install:types": "node scripts/link-types.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
@@ -53,7 +54,7 @@
     "vitest": "^4.0.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "pi": {
     "extensions": [
