@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/settings.json
+.idea/
+*.iml
+
+# Pi local config — user-specific, not checked in
+.pi/

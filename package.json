@@ -1,0 +1,61 @@
+{
+  "name": "pi-rts-alerts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pi extension that plays iconic RTS game sounds (Age of Empires 2, StarCraft II, Warcraft III, Red Alert 2) on AI lifecycle events using ffplay — no windows, no popups",
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "audio",
+    "notifications",
+    "rts",
+    "warcraft",
+    "starcraft",
+    "age-of-empires",
+    "red-alert",
+    "ffmpeg",
+    "ffplay"
+  ],
+  "homepage": "https://github.com/evanokeefe39/pi-rts-alerts#readme",
+  "bugs": {
+    "url": "https://github.com/evanokeefe39/pi-rts-alerts/issues"
+  },
+  "license": "MIT",
+  "author": "Evan O'Keefe (https://github.com/evanokeefe39)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evanokeefe39/pi-rts-alerts.git"
+  },
+  "type": "module",
+  "main": "src/extension.ts",
+  "files": [
+    "src",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "install:sounds": "node scripts/download-sounds.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "build": "tsc",
+    "prepublishOnly": "npm run typecheck"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/extension.ts"
+    ]
+  }
+}
