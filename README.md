@@ -48,24 +48,43 @@ sudo apt install ffmpeg
 
 ## Installation
 
-### Option 1: Clone & link (for development)
+### Option 1: pi install (recommended)
+
+```bash
+# Install from GitHub (sounds + deps installed automatically)
+pi install git:github.com/evanokeefe39/pi-rts-alerts
+
+# Or use a specific version tag
+pi install git:github.com/evanokeefe39/pi-rts-alerts@v1.0.0
+```
+
+This clones the package, runs `npm install` (which automatically downloads sound
+files), and registers the extension. Run `/reload` in pi to activate.
+
+> **Prerequisite:** [ffmpeg](https://ffmpeg.org/) must be installed for audio playback.
+> Install with:
+> ```bash
+> winget install Gyan.FFmpeg   # Windows
+> brew install ffmpeg           # macOS
+> sudo apt install ffmpeg       # Linux
+> ```
+
+### Option 2: Clone & link (for development)
 
 ```bash
 git clone https://github.com/evanokeefe39/pi-rts-alerts.git
 cd pi-rts-alerts
 
-# Install deps
+# Install deps + download sound files
 npm install
 
-# Download sound files
-npm run install:sounds
-
-# The extension auto-discovers from .pi/extensions/ (project-local)
-# or symlink to ~/.pi/agent/extensions/ for global use:
+# Symlink for auto-discovery by pi
 ln -s "$PWD" ~/.pi/agent/extensions/pi-rts-alerts
+# or on Windows (as admin):
+# mklink /J "%USERPROFILE%\.pi\agent\extensions\pi-rts-alerts" "%CD%"
 ```
 
-### Option 2: Direct copy
+### Option 3: Direct copy
 
 ```bash
 # Copy the extension to pi's extension directory
@@ -73,14 +92,12 @@ cp src/extension.ts ~/.pi/agent/extensions/pi-rts-alerts.ts
 
 # Install sound files
 node scripts/download-sounds.mjs
-
-# Install dependency (play-sound does the actual audio playback)
-cd ~/.pi/agent/extensions && npm install
 ```
 
 ## Usage
 
-Once installed, pi loads the extension automatically. You'll see a widget showing the active sound pack:
+Once installed and loaded (run `/reload` if pi was already running), you'll see
+a widget showing the active sound pack:
 
 ```
 🎮 Age of Empires II — Villager + Town Bell

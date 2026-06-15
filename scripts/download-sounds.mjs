@@ -10,6 +10,11 @@
  *
  * Usage:
  *   node scripts/download-sounds.mjs
+ *   npm run install:sounds
+ *
+ * When run as `postinstall` (during `npm install`), failures are non-fatal
+ * so package installation doesn't break on network issues. Run manually
+ * with `npm run install:sounds` to see full error details.
  *
  * Environment:
  *   PI_RTS_SOUNDS_DIR — override the target directory (default: ~/.pi/agent/rts-sounds/)
@@ -147,11 +152,15 @@ async function downloadFile(url, destPath) {
 }
 
 async function main() {
-  console.log("");
-  console.log("🎮 pi-rts-alerts — Sound Installer");
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log(`Target: ${TARGET_DIR}`);
-  console.log("");
+  const isPostinstall = process.env.npm_lifecycle_event === "postinstall";
+
+  if (!isPostinstall) {
+    console.log("");
+    console.log("🎮 pi-rts-alerts — Sound Installer");
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`Target: ${TARGET_DIR}`);
+    console.log("");
+  }
 
   ensureDir(TARGET_DIR);
 
@@ -166,19 +175,29 @@ async function main() {
     else failed++;
   }
 
-  console.log("");
-  console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  console.log(`Result: ${success} downloaded ✓  |  ${failed} failed ✗`);
-
-  if (failed > 0) {
+  if (!isPostinstall) {
     console.log("");
-    console.log("⚠️  Some sounds failed to download. Visit https://www.myinstants.com");
-    console.log("   to find alternatives, or place your own MP3 files in the target directory.");
-    process.exit(1);
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    console.log(`Result: ${success} downloaded ✓  |  ${failed} failed ✗`);
+
+    if (failed > 0) {
+      console.log("");
+      console.log("⚠️  Some sounds failed to download. Visit https://www.myinstants.com");
+      console.log("   to find alternatives, or place your own MP3 files in the target directory.");
+    } else {
+      console.log("✅ All sounds installed!");
+    }
+    console.log("");
+  } else if (failed > 0) {
+    console.log(`ℹ️  pi-rts-alerts: ${success} sounds installed, ${failed} failed (run "npm run install:sounds" for details)`);
   }
 
-  console.log("✅ All sounds installed!");
-  console.log("");
+  // Never exit with error in postinstall — network issues shouldn't break package install
+  if (isPostinstall && failed > 0) {
+    process.exit(0);
+  } else if (failed > 0) {
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
