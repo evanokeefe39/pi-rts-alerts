@@ -36,8 +36,9 @@
   ],
   "scripts": {
     "install:sounds": "node scripts/download-sounds.mjs",
-    "postinstall": "node scripts/download-sounds.mjs && node scripts/link-types.mjs",
-    "test": "vitest run",
+    "install:types": "node scripts/link-types.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",

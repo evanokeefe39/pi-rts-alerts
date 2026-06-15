@@ -201,6 +201,12 @@ async function main() {
 }
 
 main().catch((err) => {
+  const isPostinstall = process.env.npm_lifecycle_event === "postinstall";
+  if (isPostinstall) {
+    // Network failures in CI shouldn't break install
+    console.log(`ℹ️  pi-rts-alerts: sound download skipped — ${err.message}`);
+    process.exit(0);
+  }
   console.error("Fatal error:", err);
   process.exit(1);
 });
