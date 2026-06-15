@@ -116,18 +116,65 @@ function getSoundMapping(pack: SoundPack): SoundFileMapping {
       };
     case "warcraft3-human":
       return {
-        done: [path.join(s, "warcraft3", "human", "peasant-ready.mp3"), path.join(s, "warcraft3", "human", "yes-mi-lord.mp3")],
-        question: [path.join(s, "warcraft3", "quest-complete.mp3")],
+        done: [
+          // High-quality WAV rips (first existing wins)
+          path.join(s, "warcraft3", "human", "PeasantReady1.wav"),
+          path.join(s, "warcraft3", "human", "PeasantYes1.wav"),
+          path.join(s, "warcraft3", "human", "PeasantYes2.wav"),
+          path.join(s, "warcraft3", "human", "PeasantYes3.wav"),
+          path.join(s, "warcraft3", "human", "PeasantYes4.wav"),
+          // Fallback MP3s from myinstants
+          path.join(s, "warcraft3", "human", "peasant-ready.mp3"),
+          path.join(s, "warcraft3", "human", "yes-mi-lord.mp3"),
+        ],
+        question: [
+          path.join(s, "warcraft3", "human", "PeasantWhat1.wav"),
+          path.join(s, "warcraft3", "human", "PeasantWhat2.wav"),
+          path.join(s, "warcraft3", "human", "PeasantWhat3.wav"),
+          path.join(s, "warcraft3", "human", "PeasantWhat4.wav"),
+          path.join(s, "warcraft3", "quest-complete.mp3"),
+        ],
       };
     case "warcraft3-orc":
       return {
-        done: [path.join(s, "warcraft3", "orc", "peon-work-work.mp3"), path.join(s, "warcraft3", "orc", "peon-work-complete.mp3")],
-        question: [path.join(s, "warcraft3", "orc", "peon-okay.mp3")],
+        done: [
+          // High-quality WAV rips (first existing wins)
+          path.join(s, "warcraft3", "orc", "PeonReady1.wav"),
+          path.join(s, "warcraft3", "orc", "PeonYes1.wav"),
+          path.join(s, "warcraft3", "orc", "PeonYes2.wav"),
+          path.join(s, "warcraft3", "orc", "PeonYes3.wav"),
+          // Fallback MP3s from myinstants
+          path.join(s, "warcraft3", "orc", "peon-work-work.mp3"),
+          path.join(s, "warcraft3", "orc", "peon-work-complete.mp3"),
+        ],
+        question: [
+          // "Something need doing?" — PeonWhat4 is the exact game rip
+          path.join(s, "warcraft3", "orc", "PeonWhat4.wav"),
+          path.join(s, "warcraft3", "orc", "PeonWhat1.wav"),
+          path.join(s, "warcraft3", "orc", "PeonWhat2.wav"),
+          path.join(s, "warcraft3", "orc", "PeonWhat3.wav"),
+          // Fallback MP3s
+          path.join(s, "warcraft3", "orc", "peon-something-need-doing.mp3"),
+          path.join(s, "warcraft3", "orc", "peon-okay.mp3"),
+        ],
       };
     case "warcraft3-nightelf":
       return {
-        done: [path.join(s, "warcraft3", "level-up.mp3")],
-        question: [path.join(s, "warcraft3", "wc3-okay.mp3")],
+        done: [
+          // High-quality WAV rips (first existing wins)
+          path.join(s, "warcraft3", "wisp", "WispReady1.wav"),
+          path.join(s, "warcraft3", "wisp", "WispYes1.wav"),
+          path.join(s, "warcraft3", "wisp", "WispYes2.wav"),
+          path.join(s, "warcraft3", "wisp", "WispYes3.wav"),
+          // Fallback MP3
+          path.join(s, "warcraft3", "level-up.mp3"),
+        ],
+        question: [
+          path.join(s, "warcraft3", "wisp", "WispWhat1.wav"),
+          path.join(s, "warcraft3", "wisp", "WispWhat2.wav"),
+          path.join(s, "warcraft3", "wisp", "WispWhat3.wav"),
+          path.join(s, "warcraft3", "wc3-okay.mp3"),
+        ],
       };
     case "warcraft3-undead":
       return {
@@ -154,11 +201,11 @@ function getSoundMapping(pack: SoundPack): SoundFileMapping {
 const PACK_LABELS: Record<string, string> = {
   "starcraft2-terran": "⭐ StarCraft II — Terran (SCV \"Reporting for duty\")",
   "starcraft2-protoss": "⭐ StarCraft II — Protoss (Ethereal chime)",
-  "starcraft2-zerg": "  StarCraft II — Zerg (Fallback — needs Zerg sounds)",
+  "starcraft2-zerg": "  StarCraft II — Zerg",
   "warcraft3-human": "⭐ Warcraft III — Human (Peasant \"Ready to work\")",
-  "warcraft3-orc": "⭐ Warcraft III — Orc (Peon \"Work work!\")",
-  "warcraft3-nightelf": "  Warcraft III — Night Elf (Fallback)",
-  "warcraft3-undead": "  Warcraft III — Undead (Fallback)",
+  "warcraft3-orc": "⭐ Warcraft III — Orc Peon",
+  "warcraft3-nightelf": "  Warcraft III — Night Elf (Wisp)",
+  "warcraft3-undead": "  Warcraft III — Undead",
   "ageofempires2": "⭐ Age of Empires II — Villager + Town Bell",
   "redalert2": "⭐ Red Alert 2 — Klaxxon + Incoming Transmission",
   "custom": "Custom (your own files)",
@@ -281,102 +328,191 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const current = loadConfig();
 
-      // Build flat string options for ctx.ui.select (string[] API)
-      const actionOptions = [
-        { id: "pack", label: `Sound Pack: ${PACK_LABELS[current.soundPack] || current.soundPack}` },
-        { id: "toggle", label: `Enabled: ${current.enabled ? "✅ ON" : "❌ OFF"}` },
-        { id: "background", label: `Background mode: ${current.backgroundMode ? "✅ ON" : "❌ OFF"}` },
-        { id: "preview-done", label: "▶️  Preview 'done' sound" },
-        { id: "preview-question", label: "▶️  Preview 'question' sound" },
-        ...(current.soundPack === "custom"
-          ? [
-              { id: "custom-done", label: `Custom done file: ${current.customDoneFile || "(not set)"}` },
-              { id: "custom-question", label: `Custom question file: ${current.customQuestionFile || "(not set)"}` },
-            ]
-          : []),
-        { id: "path", label: "📁 Show config path" },
-      ];
+      /**
+       * Show the pack detail view — list all sound files in the current pack
+       * with preview options, plus back/exit navigation.
+       */
+      async function showPackDetail(): Promise<"back" | "exit" | undefined> {
+        const mapping = getSoundMapping(current.soundPack);
+        const packLabel = PACK_LABELS[current.soundPack] || current.soundPack;
 
-      const selectedLabel = await ctx.ui.select(
-        "🎮 Audio Alerts Config",
-        actionOptions.map((o) => o.label),
-      );
-      if (!selectedLabel) return;
+        // Build sound preview entries
+        const soundEntries: { id: string; label: string; type: "done" | "question"; idx: number }[] = [];
 
-      const action = actionOptions.find((o) => o.label === selectedLabel)?.id;
-      if (!action) return;
+        for (const [type, files] of Object.entries(mapping) as ["done" | "question", string[]][]) {
+          for (let i = 0; i < files.length; i++) {
+            const fname = path.basename(files[i]);
+            const exists = fs.existsSync(files[i]);
+            const existsMark = exists ? "" : " ⚠️";
+            soundEntries.push({
+              id: `preview-${type}-${i}`,
+              label: `  ▶️ ${type === "done" ? "Done" : "Question?"}: ${fname}${existsMark}`,
+              type,
+              idx: i,
+            });
+          }
+        }
 
-      switch (action) {
-        case "pack": {
+        const options = [
+          ...soundEntries.map((e) => e.label),
+          "───",
+          "⬅️ Back to packs",
+          "⬅️ Exit",
+        ];
+
+        const selected = await ctx.ui.select(
+          `🎮 ${packLabel}`,
+          options,
+        );
+        if (!selected) return "back";
+
+        if (selected === "⬅️ Back to packs") return "back";
+        if (selected === "⬅️ Exit") return "exit";
+        if (selected === "───") return "back";
+
+        // Preview a sound
+        const entry = soundEntries.find((e) => e.label === selected);
+        if (entry) {
+          const file = mapping[entry.type][entry.idx];
+          playAudioFile(file);
+          // After preview, show the same view again so user can preview more
+          return showPackDetail();
+        }
+
+        return "back";
+      }
+
+      /**
+       * Main pack browser — list all packs + toggles, loop until exit.
+       */
+      async function packBrowser(): Promise<void> {
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
           const packEntries = Object.entries(PACK_LABELS);
-          const selectedPackLabel = await ctx.ui.select(
-            "🎮 Select Sound Pack",
-            packEntries.map(([, label]) => label),
+
+          // Build options: toggles first, then packs, then exit
+          const toggleOptions: { id: string; label: string }[] = [
+            {
+              id: "__toggle",
+              label: `${current.enabled ? "🔊" : "🔇"} Enabled: ${current.enabled ? "ON" : "OFF"}`,
+            },
+            {
+              id: "__bg",
+              label: `🔄 Background: ${current.backgroundMode ? "ON" : "OFF"}`,
+            },
+            {
+              id: "__path",
+              label: "📁 Config path",
+            },
+          ];
+
+          const packListOptions = packEntries.map(([key, label]) => ({
+            id: key,
+            label: `${key === current.soundPack ? "●" : "○"} ${label}`,
+          }));
+
+          if (current.soundPack === "custom") {
+            packListOptions.push({
+              id: "__custom-done",
+              label: `  Custom done: ${current.customDoneFile || "(not set)"}`,
+            });
+            packListOptions.push({
+              id: "__custom-question",
+              label: `  Custom question: ${current.customQuestionFile || "(not set)"}`,
+            });
+          }
+
+          const navOptions = [
+            { id: "__exit", label: "⬅️ Exit" },
+          ];
+
+          const allOptions = [...toggleOptions, "───" as any, ...packListOptions, "───" as any, ...navOptions].map(
+            (o: any) => (typeof o === "string" ? o : o.label),
           );
-          if (!selectedPackLabel) break;
-          const pickedKey = packEntries.find(([, label]) => label === selectedPackLabel)?.[0];
-          if (pickedKey) {
-            current.soundPack = pickedKey as SoundPack;
-            saveConfig(current);
-            ctx.ui.notify(`Sound pack: ${PACK_LABELS[pickedKey]}`, "info");
-            playSound("done", loadConfig());
-          }
-          break;
-        }
-        case "toggle": {
-          current.enabled = !current.enabled;
-          saveConfig(current);
-          ctx.ui.notify(`Audio alerts ${current.enabled ? "enabled ✅" : "disabled ❌"}`, "info");
-          if (current.enabled) playSound("done", loadConfig());
-          break;
-        }
-        case "background": {
-          current.backgroundMode = !current.backgroundMode;
-          saveConfig(current);
-          ctx.ui.notify(`Background mode ${current.backgroundMode ? "enabled" : "disabled"}`, "info");
-          break;
-        }
-        case "preview-done": {
-          playSound("done", loadConfig());
-          break;
-        }
-        case "preview-question": {
-          playSound("question", loadConfig());
-          break;
-        }
-        case "custom-done": {
-          const p = await ctx.ui.input("Path to sound file:", current.customDoneFile || "");
-          if (p) {
-            if (fs.existsSync(p)) {
-              current.customDoneFile = p;
-              saveConfig(current);
-              ctx.ui.notify("Custom done sound set", "info");
-              playAudioFile(p);
-            } else {
-              ctx.ui.notify("File not found", "error");
+
+          const selected = await ctx.ui.select(
+            "🎮 Audio Alerts",
+            allOptions as string[],
+          );
+          if (!selected) return; // Escape = exit
+
+          // Find the action
+          const toggleMatch = toggleOptions.find((o) => o.label === selected);
+          if (toggleMatch) {
+            switch (toggleMatch.id) {
+              case "__toggle":
+                current.enabled = !current.enabled;
+                saveConfig(current);
+                ctx.ui.notify(
+                  `Audio alerts ${current.enabled ? "enabled ✅" : "disabled ❌"}`,
+                  "info",
+                );
+                if (current.enabled) playSound("done", loadConfig());
+                continue;
+              case "__bg":
+                current.backgroundMode = !current.backgroundMode;
+                saveConfig(current);
+                ctx.ui.notify(`Background mode ${current.backgroundMode ? "on" : "off"}`, "info");
+                continue;
+              case "__path":
+                ctx.ui.notify(`Config: ${getConfigPath()}\nSounds: ${RTS_SOUNDS_DIR}`, "info");
+                continue;
             }
           }
-          break;
-        }
-        case "custom-question": {
-          const p = await ctx.ui.input("Path to sound file:", current.customQuestionFile || "");
-          if (p) {
-            if (fs.existsSync(p)) {
-              current.customQuestionFile = p;
-              saveConfig(current);
-              ctx.ui.notify("Custom question sound set", "info");
-              playAudioFile(p);
+
+          // Check exit
+          const navMatch = navOptions.find((o) => o.label === selected);
+          if (navMatch) return;
+
+          // Separator
+          if (selected === "───") continue;
+
+          // Custom file settings
+          const customMatch = [
+            { id: "__custom-done", label: `  Custom done: ${current.customDoneFile || "(not set)"}` },
+            { id: "__custom-question", label: `  Custom question: ${current.customQuestionFile || "(not set)"}` },
+          ].find((o) => o.label === selected);
+          if (customMatch) {
+            const isDone = customMatch.id === "__custom-done";
+            const prompt = isDone ? "Path to 'done' sound file:" : "Path to 'question' sound file:";
+            const currentVal = isDone ? current.customDoneFile : current.customQuestionFile;
+            const p = await ctx.ui.input(prompt, currentVal || "");
+            if (p) {
+              if (fs.existsSync(p)) {
+                if (isDone) current.customDoneFile = p;
+                else current.customQuestionFile = p;
+                saveConfig(current);
+                ctx.ui.notify("Custom sound set", "info");
+                playAudioFile(p);
+              } else {
+                ctx.ui.notify("File not found", "error");
+              }
+            }
+            continue;
+          }
+
+          // Find by matching the pack key in the label
+          const packMatch = packListOptions.find((o) => o.label === selected);
+          if (packMatch) {
+            const key = packMatch.id;
+            if (key === current.soundPack) {
+              // Already on this pack → show pack detail
+              const result = await showPackDetail();
+              if (result === "exit") return;
+              // "back" stays in the pack browser loop
             } else {
-              ctx.ui.notify("File not found", "error");
+              // Switch to this pack
+              current.soundPack = key as SoundPack;
+              saveConfig(current);
+              ctx.ui.notify(`Sound pack: ${PACK_LABELS[key]}`, "info");
+              playSound("done", loadConfig());
+              // Stay in pack browser to show updated view
             }
           }
-          break;
-        }
-        case "path": {
-          ctx.ui.notify(`Config: ${getConfigPath()}\nSounds: ${RTS_SOUNDS_DIR}`, "info");
-          break;
         }
       }
+
+      await packBrowser();
     },
   });
 

@@ -90,16 +90,16 @@ const SOUND_URLS = {
     "https://www.myinstants.com/media/sounds/wc3-peon-work-work.mp3",
   "warcraft3/orc/peon-work-complete.mp3":
     "https://www.myinstants.com/media/sounds/wc3-work-complete.mp3",
-  "warcraft3/orc/peon-okay.mp3":
-    "https://www.myinstants.com/media/sounds/wc3-okay.mp3",
 
   // ── Warcraft III — Generic ────────────────────────────────────────
   "warcraft3/quest-complete.mp3":
     "https://www.myinstants.com/media/sounds/wc3-quest-complete.mp3",
   "warcraft3/level-up.mp3":
     "https://www.myinstants.com/media/sounds/wc3-level-up.mp3",
-  "warcraft3/wc3-okay.mp3":
-    "https://www.myinstants.com/media/sounds/wc3-okay-alt.mp3",
+  // "Something you're doing" — downloaded dynamically from 101soundboards
+  // in downloadSpecial() because their URLs have expiring signatures.
+  //"warcraft3/wc3-okay.mp3":
+  //  "https://www.myinstants.com/media/sounds/wc3-okay-alt.mp3",
   "warcraft3/dreadlord.mp3":
     "https://www.myinstants.com/media/sounds/wc3-dreadlord.mp3",
 
@@ -151,6 +151,95 @@ async function downloadFile(url, destPath) {
   }
 }
 
+/**
+ * Download the Warcraft III Peon "Something need doing?" sound from
+ * 101soundboards.com. Their CDN URLs have expiring signatures, so we
+ * scrape the fresh URL from their board page each time.
+ */
+async function downloadPeonSomethingNeedDoing() {
+  const relPath = "warcraft3/orc/peon-something-need-doing.mp3";
+  const destPath = path.join(TARGET_DIR, relPath);
+
+  if (fs.existsSync(destPath)) {
+    console.log(`  ✓ Already exists: ${relPath}`);
+    return true;
+  }
+
+  const boardUrl = "https://www.101soundboards.com/boards/10069-peon-sounds-warcraft-iii-reign-of-chaos";
+  const soundId = "9468"; // "Something you're doing" sound
+
+  try {
+    console.log(`  ↓ Fetching ${relPath} from 101soundboards...`);
+    const resp = await fetch(boardUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; pi-rts-alerts/1.0)" },
+    });
+    if (!resp.ok) throw new Error(`Board page HTTP ${resp.status}`);
+    const html = await resp.text();
+
+    // Find the sound_file_url for our soundId in the embedded JSON
+    // Pattern: "id":9468,..."sound_file_url":"https://...
+    const soundBlock = html.match(
+      new RegExp(`"id":${soundId}[^}]{0,2000}"sound_file_url":"([^"]+)"`)
+    );
+    if (!soundBlock) throw new Error("Could not find sound_file_url in board page");
+
+    const rawUrl = soundBlock[1].replace(/\\\//g, "/");
+    console.log(`  ↓ Downloading: ${relPath}`);
+    const audioResp = await fetch(rawUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; pi-rts-alerts/1.0)" },
+    });
+    if (!audioResp.ok) throw new Error(`Audio HTTP ${audioResp.status}`);
+    const buffer = Buffer.from(await audioResp.arrayBuffer());
+    fs.writeFileSync(destPath, buffer);
+    console.log(`  ✓ Downloaded: ${relPath} (${buffer.length} bytes)`);
+    return true;
+  } catch (err) {
+    console.error(`  ✗ Failed: ${relPath} — ${err.message}`);
+    console.error(`    Tip: Download manually from ${boardUrl} and save as:`);
+    console.error(`    ${destPath}`);
+    return false;
+  }
+}
+
+/**
+ * Copy high-quality WAV rips from the user's Downloads folder if they exist.
+ * These are direct game-rip WAVs that provide much better quality than myinstants MP3s.
+ * Returns the number of files copied (0 if folder doesn't exist).
+ */
+const LOCAL_WAV_SOURCES = {
+  "warcraft3/orc": path.join(os.homedir(), "Downloads", "wc3sfx-orc-peon"),
+  "warcraft3/human": path.join(os.homedir(), "Downloads", "wc3sfx-human-peasant"),
+  "warcraft3/wisp": path.join(os.homedir(), "Downloads", "wc3sfx-nightelf-wisp"),
+};
+
+async function copyLocalWavs() {
+  let copied = 0;
+
+  for (const [relDir, srcDir] of Object.entries(LOCAL_WAV_SOURCES)) {
+    if (!fs.existsSync(srcDir)) continue;
+
+    const destDir = path.join(TARGET_DIR, relDir);
+    ensureDir(destDir);
+
+    try {
+      const files = fs.readdirSync(srcDir).filter((f) => f.endsWith(".wav"));
+      for (const file of files) {
+        const src = path.join(srcDir, file);
+        const dest = path.join(destDir, file);
+        if (!fs.existsSync(dest)) {
+          fs.copyFileSync(src, dest);
+          console.log(`  ✓ Copied WAV: ${relDir}/${file}`);
+          copied++;
+        }
+      }
+    } catch (err) {
+      console.log(`  ℹ️  Could not copy WAVs from ${srcDir}: ${err.message}`);
+    }
+  }
+
+  return copied;
+}
+
 async function main() {
   const isPostinstall = process.env.npm_lifecycle_event === "postinstall";
 
@@ -174,6 +263,15 @@ async function main() {
     if (ok) success++;
     else failed++;
   }
+
+  // Download the Orc "Something need doing?" sound from 101soundboards
+  const peonOk = await downloadPeonSomethingNeedDoing();
+  if (peonOk) success++;
+  else failed++;
+
+  // Copy high-quality WAV game rips from local Downloads folder if available
+  const wavCopied = await copyLocalWavs();
+  if (wavCopied) success += wavCopied;
 
   if (!isPostinstall) {
     console.log("");
