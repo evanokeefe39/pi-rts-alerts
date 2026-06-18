@@ -1,6 +1,10 @@
 ## Description
 
-<!-- Briefly describe the change and why it's needed -->
+<!-- Briefly describe the change and why it's needed. -->
+<!-- Use conventional commits in the PR title, e.g.: -->
+<!-- feat: add Warcraft III night elf wisp sound pack -->
+<!-- fix: resolve crash when ffplay not found -->
+<!-- docs: update installation instructions -->
 
 ## Type of Change
 
@@ -10,15 +14,18 @@
 - [ ] ♻️ Refactor (code change that neither fixes a bug nor adds a feature)
 - [ ] 📖 Documentation (documentation only)
 - [ ] 🎵 Sound pack (adding/modifying sound files or mappings)
+- [ ] 🔧 CI / Build (CI config, dependencies, tooling)
 
 ## How Has This Been Tested?
 
 - [ ] `npm run typecheck` passes
 - [ ] `npm test` passes
+- [ ] `npm run format:check` passes
 - [ ] Manual test in pi (`/reload` + `/audio`)
 
 ## Checklist
 
+- [ ] PR title follows [conventional commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, etc.)
 - [ ] My code follows the existing code style
 - [ ] I have added/updated tests where appropriate
 - [ ] I have updated the README if needed

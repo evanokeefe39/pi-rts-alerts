@@ -1,6 +1,15 @@
 # pi-rts-alerts 🔊🎮
 
-> **Pi extension** that plays iconic RTS game sounds when the AI finishes responding or asks you a question — using `ffplay` for **zero-window, headless audio** on Windows, macOS, and Linux.
+> **Pi extension** that plays iconic RTS game sounds when the AI finishes
+> responding or asks you a question — using `ffplay` for **zero-window,
+> headless audio** on Windows, macOS, and Linux.
+
+[![CI](https://github.com/evanokeefe39/pi-rts-alerts/actions/workflows/ci.yml/badge.svg)](https://github.com/evanokeefe39/pi-rts-alerts/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/pi-rts-alerts?logo=npm&label=npm)](https://www.npmjs.com/package/pi-rts-alerts)
+[![License](https://img.shields.io/github/license/evanokeefe39/pi-rts-alerts)](LICENSE)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://conventionalcommits.org)
+[![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 
 ## Demo
 
@@ -51,23 +60,11 @@ sudo apt install ffmpeg
 ### Option 1: pi install (recommended)
 
 ```bash
-# Install from GitHub (sounds + deps installed automatically)
 pi install git:github.com/evanokeefe39/pi-rts-alerts
-
-# Or use a specific version tag
-pi install git:github.com/evanokeefe39/pi-rts-alerts@v1.0.0
 ```
 
-This clones the package, runs `npm install` (which automatically downloads sound
-files), and registers the extension. Run `/reload` in pi to activate.
-
-> **Prerequisite:** [ffmpeg](https://ffmpeg.org/) must be installed for audio playback.
-> Install with:
-> ```bash
-> winget install Gyan.FFmpeg   # Windows
-> brew install ffmpeg           # macOS
-> sudo apt install ffmpeg       # Linux
-> ```
+This clones the package, runs `npm install` (which automatically downloads
+sound files), and registers the extension. Run `/reload` in pi to activate.
 
 ### Option 2: Clone & link (for development)
 
@@ -75,24 +72,14 @@ files), and registers the extension. Run `/reload` in pi to activate.
 git clone https://github.com/evanokeefe39/pi-rts-alerts.git
 cd pi-rts-alerts
 
-# Install deps + download sound files
+# Install deps + download sound files + install git hooks
 npm install
 
-# Symlink for auto-discovery by pi
-ln -s "$PWD" ~/.pi/agent/extensions/pi-rts-alerts
-# or on Windows (as admin):
-# mklink /J "%USERPROFILE%\.pi\agent\extensions\pi-rts-alerts" "%CD%"
+# Register with pi (adds to ~/.pi/agent/settings.json)
+pi install --link .
 ```
 
-### Option 3: Direct copy
-
-```bash
-# Copy the extension to pi's extension directory
-cp src/extension.ts ~/.pi/agent/extensions/pi-rts-alerts.ts
-
-# Install sound files
-node scripts/download-sounds.mjs
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development workflow.
 
 ## Usage
 
@@ -111,6 +98,7 @@ a widget showing the active sound pack:
 | `/audio` | Open the interactive config menu |
 
 The `/audio` command lets you:
+
 - **Change sound pack** — browse and select from all available packs
 - **Toggle enabled/disabled** — turn sounds on/off
 - **Toggle background mode** — play sounds even in non-TUI modes (RPC, JSON)
@@ -139,7 +127,8 @@ The `/audio` command lets you:
 
 ## How It Works
 
-The extension uses **ffplay** (part of ffmpeg) with these flags for truly headless playback:
+The extension uses **ffplay** (part of ffmpeg) with these flags for truly
+headless playback:
 
 ```
 ffplay -nodisp -autoexit -loglevel quiet <sound-file>
@@ -149,7 +138,8 @@ ffplay -nodisp -autoexit -loglevel quiet <sound-file>
 - `-autoexit` — Exit ffplay when playback finishes
 - `-loglevel quiet` — No console output
 
-This means **zero windows**, **zero popups**, **zero console spam** — the audio plays silently in the background.
+This means **zero windows**, **zero popups**, **zero console spam** — the audio
+plays silently in the background.
 
 ### Fallback Chain
 
@@ -162,15 +152,31 @@ This means **zero windows**, **zero popups**, **zero console spam** — the audi
 pi-rts-alerts/
 ├── src/
 │   └── extension.ts          # Main extension code
+│   └── types/
+│       └── pi-coding-agent.d.ts  # Ambient type declarations
 ├── scripts/
-│   └── download-sounds.mjs   # Download/generate sound files
+│   ├── download-sounds.mjs   # Download sound files from public soundboards
+│   ├── link-types.mjs        # Link pi types for local type-checking
+│   └── postinstall.mjs       # Post-install setup (sounds + types)
 ├── .github/
-│   └── workflows/
-│       └── ci.yml            # CI: typecheck + tests
-├── package.json              # Dependencies and metadata
-├── tsconfig.json             # TypeScript config
-├── README.md                 # This file
-└── LICENSE                   # MIT
+│   ├── workflows/
+│   │   └── ci.yml            # CI: commitlint + typecheck + test + format + release
+│   ├── ISSUE_TEMPLATE/       # Bug report and feature request templates
+│   ├── dependabot.yml        # Automated dependency updates
+│   ├── CODEOWNERS            # Code ownership
+│   └── PULL_REQUEST_TEMPLATE.md
+├── .commitlintrc.json        # Conventional commits config
+├── .editorconfig             # Editor settings
+├── .gitignore
+├── lefthook.yml              # Git hooks (pre-commit, commit-msg, pre-push)
+├── CHANGELOG.md              # Auto-generated release notes
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md           # Branching strategy, PR workflow, conventions
+├── LICENSE                   # MIT
+├── package.json
+├── SECURITY.md
+├── tsconfig.json
+└── README.md                 # This file
 ```
 
 ## Development
@@ -182,27 +188,55 @@ npm run typecheck
 # Run tests
 npm test
 
+# Format code
+npm run format
+
+# Full check (typecheck + format check + test)
+npm run check
+
+# Interactive commit (conventional commits wizard)
+npm run commit
+
 # Watch mode
 npm run test:watch
 ```
 
-### Making Changes
+### Git Hooks
 
-1. Create a feature branch: `git checkout -b feat/my-feature`
-2. Make changes to `src/extension.ts`
-3. Run `npm run typecheck` to verify types
-4. Test by reloading pi: `/reload` and then `/audio`
-5. Commit and push, then open a PR
+[Lefthook](https://github.com/evilmartians/lefthook) runs automatically on:
+
+- **`pre-commit`** — type-check + format staged files
+- **`commit-msg`** — validate conventional commit format
+- **`pre-push`** — full typecheck + test + format check
+
+To install hooks manually:
+
+```bash
+npx lefthook install
+```
 
 ## Contributing
 
-PRs welcome! Please follow the existing code style and add tests for new features.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on:
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Commit your changes (`git commit -m 'Add some feature'`)
-4. Push to the branch (`git push origin feat/my-feature`)
-5. Open a Pull Request
+- Branch naming and strategy
+- Conventional commit format
+- Pull request process
+- Adding new sound packs
+- Code style and testing
+
+## Versioning
+
+This project uses [SemVer](https://semver.org/) with automated releases via
+[semantic-release](https://semantic-release.gitbook.io/). Version bumps are
+determined automatically from commit messages:
+
+| Commit Type | Version Bump |
+|-------------|-------------|
+| `BREAKING CHANGE` | Major |
+| `feat` | Minor |
+| `fix`, `perf` | Patch |
+| `docs`, `chore`, `ci` | No release |
 
 ## License
 
@@ -210,5 +244,8 @@ MIT — see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-- Game sound clips sourced from [myinstants.com](https://www.myinstants.com) — all rights belong to their respective game developers (Blizzard Entertainment, Microsoft Ensemble Studios, Westwood Studios)
+- Game sound clips sourced from [myinstants.com](https://www.myinstants.com)
+  and [101soundboards.com](https://www.101soundboards.com) — all rights belong
+  to their respective game developers (Blizzard Entertainment, Microsoft Ensemble
+  Studios, Westwood Studios)
 - Built as a [pi](https://github.com/earendil-works/pi-coding-agent) extension

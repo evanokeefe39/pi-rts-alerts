@@ -1,566 +1,639 @@
 /**
- * pi-rts-alerts — RTS Sound Alerts Extension for pi
- * 
- * https://github.com/evanokeefe39/pi-rts-alerts
- * 
- * Plays iconic RTS game worker/notification sounds when:
- * - AI finishes responding (agent_end) → worker "ready" sounds
- * - AI asks a question via ask_user tool → warning/alert sounds
- * 
- * Playback uses ffplay (part of ffmpeg) with -nodisp -autoexit -loglevel quiet
- * so NO windows pop up — fully headless, cross-platform audio.
- * 
- * Sound packs (with actual game audio files from myinstants.com):
- *   - starcraft2: terran / protoss / zerg (racial worker sounds)
- *   - warcraft3: human / orc (racial worker sounds)
- *   - ageofempires2: generic villager "Shi Ho!" ~ "Ready" / town bell
- *   - redalert2: klaxxon / alarm (warning) + unit/faction sounds
- *   - custom: point to your own WAV/MP3 files
- * 
- * Config: ~/.pi/agent/audio-alerts-config.json
- * Command: /audio to change settings interactively
- * Sound files: ~/.pi/agent/rts-sounds/ (install via: npm run install:sounds)
- * Prerequisite: ffmpeg (install via: winget install Gyan.FFmpeg / brew install ffmpeg / apt install ffmpeg)
+ * pi-rts-alerts — Audio-Event Mapping Extension for pi
+ *
+ * Maps audio to any pi event via the same event system extensions use:
+ *
+ *   1. OUTPUT: any pi event → play any sound (configurable YAML mappings)
+ *   2. INPUT:  microphone detects sound → emit pi events (inter-extension bus)
+ *   3. EXTEND: other extensions use pi.events.emit("audio:play", {file})
+ *              or listen for pi.events.on("audio:clap", handler)
+ *
+ * Legacy RTS sound pack system fully backward-compatible.
+ *
+ * Config: ~/.pi/agent/audio-alerts.yaml
+ * Command: /audio to change settings
+ * Sound files: ~/.pi/agent/rts-sounds/
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
-import { exec, execSync } from "node:child_process";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AudioAlertsConfig } from "./config.js";
+import {
+	builtinOutputMappings,
+	loadConfig,
+	SOUNDS_DIR,
+	saveConfig,
+} from "./config.js";
+import { createEventMapper, type EventMapper } from "./event-mapper.js";
+import type { SoundPlayer } from "./sound-player.js";
+import { getBestPlayer } from "./sound-player.js";
 
-// ─── Types ────────────────────────────────────────────────────────────
+// ─── Sound pack mappings (legacy, kept for backward compat) ──────────
 
-type SoundPack =
-  | "starcraft2-terran"
-  | "starcraft2-protoss"
-  | "starcraft2-zerg"
-  | "warcraft3-human"
-  | "warcraft3-orc"
-  | "warcraft3-nightelf"
-  | "warcraft3-undead"
-  | "ageofempires2"
-  | "redalert2"
-  | "custom";
-
-interface AudioConfig {
-  soundPack: SoundPack;
-  /** Optional path to custom sound file for "done" */
-  customDoneFile?: string;
-  /** Optional path to custom sound file for "question" */
-  customQuestionFile?: string;
-  /** Enable sounds at all */
-  enabled: boolean;
-  /** Play sounds on non-TUI modes too (rpc, json, print) */
-  backgroundMode: boolean;
+interface LegacySoundMapping {
+	done: string[];
+	question: string[];
 }
 
-// ─── Default config ────────────────────────────────────────────────────
+type LegacySoundPack =
+	| "starcraft2-terran"
+	| "starcraft2-protoss"
+	| "starcraft2-zerg"
+	| "warcraft3-human"
+	| "warcraft3-orc"
+	| "warcraft3-nightelf"
+	| "warcraft3-undead"
+	| "ageofempires2"
+	| "redalert2"
+	| "custom";
 
-const DEFAULT_CONFIG: AudioConfig = {
-  soundPack: "ageofempires2",
-  enabled: true,
-  backgroundMode: true,
-};
-
-// ─── Config path ──────────────────────────────────────────────────────
-
-const RTS_SOUNDS_DIR = path.join(os.homedir(), ".pi", "agent", "rts-sounds");
-
-function getConfigPath(): string {
-  return path.join(os.homedir(), ".pi", "agent", "audio-alerts-config.json");
+function getLegacyMapping(pack: LegacySoundPack): LegacySoundMapping {
+	const s = SOUNDS_DIR;
+	switch (pack) {
+		case "starcraft2-terran":
+			return {
+				done: [path.join(s, "starcraft2", "terran", "scv-ready.mp3")],
+				question: [path.join(s, "starcraft2", "terran", "siege-tank.mp3")],
+			};
+		case "starcraft2-protoss":
+			return {
+				done: [path.join(s, "starcraft2", "protoss", "chime.mp3")],
+				question: [path.join(s, "starcraft2", "protoss", "waiting.mp3")],
+			};
+		case "starcraft2-zerg":
+			return {
+				done: [path.join(s, "starcraft2", "protoss", "chime.mp3")],
+				question: [
+					path.join(s, "starcraft2", "protoss", "insufficient-gas.mp3"),
+				],
+			};
+		case "warcraft3-human":
+			return {
+				done: [
+					path.join(s, "warcraft3", "human", "PeasantReady1.wav"),
+					path.join(s, "warcraft3", "human", "PeasantYes1.wav"),
+					path.join(s, "warcraft3", "human", "PeasantYes2.wav"),
+					path.join(s, "warcraft3", "human", "PeasantYes3.wav"),
+					path.join(s, "warcraft3", "human", "PeasantYes4.wav"),
+					path.join(s, "warcraft3", "human", "peasant-ready.mp3"),
+					path.join(s, "warcraft3", "human", "yes-mi-lord.mp3"),
+				],
+				question: [
+					path.join(s, "warcraft3", "human", "PeasantWhat1.wav"),
+					path.join(s, "warcraft3", "human", "PeasantWhat2.wav"),
+					path.join(s, "warcraft3", "human", "PeasantWhat3.wav"),
+					path.join(s, "warcraft3", "human", "PeasantWhat4.wav"),
+					path.join(s, "warcraft3", "quest-complete.mp3"),
+				],
+			};
+		case "warcraft3-orc":
+			return {
+				done: [
+					path.join(s, "warcraft3", "orc", "PeonReady1.wav"),
+					path.join(s, "warcraft3", "orc", "PeonYes1.wav"),
+					path.join(s, "warcraft3", "orc", "PeonYes2.wav"),
+					path.join(s, "warcraft3", "orc", "PeonYes3.wav"),
+					path.join(s, "warcraft3", "orc", "peon-work-work.mp3"),
+					path.join(s, "warcraft3", "orc", "peon-work-complete.mp3"),
+				],
+				question: [
+					path.join(s, "warcraft3", "orc", "PeonWhat4.wav"),
+					path.join(s, "warcraft3", "orc", "PeonWhat1.wav"),
+					path.join(s, "warcraft3", "orc", "PeonWhat2.wav"),
+					path.join(s, "warcraft3", "orc", "PeonWhat3.wav"),
+					path.join(s, "warcraft3", "orc", "peon-something-need-doing.mp3"),
+					path.join(s, "warcraft3", "orc", "peon-okay.mp3"),
+				],
+			};
+		case "warcraft3-nightelf":
+			return {
+				done: [
+					path.join(s, "warcraft3", "wisp", "WispReady1.wav"),
+					path.join(s, "warcraft3", "wisp", "WispYes1.wav"),
+					path.join(s, "warcraft3", "wisp", "WispYes2.wav"),
+					path.join(s, "warcraft3", "wisp", "WispYes3.wav"),
+					path.join(s, "warcraft3", "level-up.mp3"),
+				],
+				question: [
+					path.join(s, "warcraft3", "wisp", "WispWhat1.wav"),
+					path.join(s, "warcraft3", "wisp", "WispWhat2.wav"),
+					path.join(s, "warcraft3", "wisp", "WispWhat3.wav"),
+					path.join(s, "warcraft3", "wc3-okay.mp3"),
+				],
+			};
+		case "warcraft3-undead":
+			return {
+				done: [path.join(s, "warcraft3", "wc3-okay.mp3")],
+				question: [path.join(s, "warcraft3", "level-up.mp3")],
+			};
+		case "ageofempires2":
+			return {
+				done: [
+					path.join(s, "ageofempires2", "villager-ready.mp3"),
+					path.join(s, "ageofempires2", "unit-created.mp3"),
+				],
+				question: [
+					path.join(s, "ageofempires2", "town-bell.mp3"),
+					path.join(s, "ageofempires2", "under-attack.mp3"),
+				],
+			};
+		case "redalert2":
+			return {
+				done: [
+					path.join(s, "redalert2", "incoming-transmission.mp3"),
+					path.join(s, "redalert2", "redalert.mp3"),
+				],
+				question: [
+					path.join(s, "redalert2", "klaxxon.mp3"),
+					path.join(s, "redalert2", "alarm.mp3"),
+				],
+			};
+		case "custom":
+			return { done: [], question: [] };
+	}
 }
-
-function loadConfig(): AudioConfig {
-  try {
-    const raw = fs.readFileSync(getConfigPath(), "utf-8");
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
-}
-
-function saveConfig(config: AudioConfig): void {
-  const cfgPath = getConfigPath();
-  const dir = path.dirname(cfgPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf-8");
-}
-
-// ─── Sound file mappings ──────────────────────────────────────────────
-
-interface SoundFileMapping {
-  /** Path(s) to the "done" sound file(s) — first existing one wins */
-  done: string[];
-  /** Path(s) to the "question" sound file(s) — first existing one wins */
-  question: string[];
-}
-
-function getSoundMapping(pack: SoundPack): SoundFileMapping {
-  const s = RTS_SOUNDS_DIR;
-  switch (pack) {
-    case "starcraft2-terran":
-      return {
-        done: [path.join(s, "starcraft2", "terran", "scv-ready.mp3")],
-        question: [path.join(s, "starcraft2", "terran", "siege-tank.mp3")],
-      };
-    case "starcraft2-protoss":
-      return {
-        done: [path.join(s, "starcraft2", "protoss", "chime.mp3")],
-        question: [path.join(s, "starcraft2", "protoss", "waiting.mp3")],
-      };
-    case "starcraft2-zerg":
-      return {
-        done: [path.join(s, "starcraft2", "protoss", "chime.mp3")],  // fallback
-        question: [path.join(s, "starcraft2", "protoss", "insufficient-gas.mp3")],
-      };
-    case "warcraft3-human":
-      return {
-        done: [
-          // High-quality WAV rips (first existing wins)
-          path.join(s, "warcraft3", "human", "PeasantReady1.wav"),
-          path.join(s, "warcraft3", "human", "PeasantYes1.wav"),
-          path.join(s, "warcraft3", "human", "PeasantYes2.wav"),
-          path.join(s, "warcraft3", "human", "PeasantYes3.wav"),
-          path.join(s, "warcraft3", "human", "PeasantYes4.wav"),
-          // Fallback MP3s from myinstants
-          path.join(s, "warcraft3", "human", "peasant-ready.mp3"),
-          path.join(s, "warcraft3", "human", "yes-mi-lord.mp3"),
-        ],
-        question: [
-          path.join(s, "warcraft3", "human", "PeasantWhat1.wav"),
-          path.join(s, "warcraft3", "human", "PeasantWhat2.wav"),
-          path.join(s, "warcraft3", "human", "PeasantWhat3.wav"),
-          path.join(s, "warcraft3", "human", "PeasantWhat4.wav"),
-          path.join(s, "warcraft3", "quest-complete.mp3"),
-        ],
-      };
-    case "warcraft3-orc":
-      return {
-        done: [
-          // High-quality WAV rips (first existing wins)
-          path.join(s, "warcraft3", "orc", "PeonReady1.wav"),
-          path.join(s, "warcraft3", "orc", "PeonYes1.wav"),
-          path.join(s, "warcraft3", "orc", "PeonYes2.wav"),
-          path.join(s, "warcraft3", "orc", "PeonYes3.wav"),
-          // Fallback MP3s from myinstants
-          path.join(s, "warcraft3", "orc", "peon-work-work.mp3"),
-          path.join(s, "warcraft3", "orc", "peon-work-complete.mp3"),
-        ],
-        question: [
-          // "Something need doing?" — PeonWhat4 is the exact game rip
-          path.join(s, "warcraft3", "orc", "PeonWhat4.wav"),
-          path.join(s, "warcraft3", "orc", "PeonWhat1.wav"),
-          path.join(s, "warcraft3", "orc", "PeonWhat2.wav"),
-          path.join(s, "warcraft3", "orc", "PeonWhat3.wav"),
-          // Fallback MP3s
-          path.join(s, "warcraft3", "orc", "peon-something-need-doing.mp3"),
-          path.join(s, "warcraft3", "orc", "peon-okay.mp3"),
-        ],
-      };
-    case "warcraft3-nightelf":
-      return {
-        done: [
-          // High-quality WAV rips (first existing wins)
-          path.join(s, "warcraft3", "wisp", "WispReady1.wav"),
-          path.join(s, "warcraft3", "wisp", "WispYes1.wav"),
-          path.join(s, "warcraft3", "wisp", "WispYes2.wav"),
-          path.join(s, "warcraft3", "wisp", "WispYes3.wav"),
-          // Fallback MP3
-          path.join(s, "warcraft3", "level-up.mp3"),
-        ],
-        question: [
-          path.join(s, "warcraft3", "wisp", "WispWhat1.wav"),
-          path.join(s, "warcraft3", "wisp", "WispWhat2.wav"),
-          path.join(s, "warcraft3", "wisp", "WispWhat3.wav"),
-          path.join(s, "warcraft3", "wc3-okay.mp3"),
-        ],
-      };
-    case "warcraft3-undead":
-      return {
-        done: [path.join(s, "warcraft3", "wc3-okay.mp3")],
-        question: [path.join(s, "warcraft3", "level-up.mp3")],
-      };
-    case "ageofempires2":
-      return {
-        done: [path.join(s, "ageofempires2", "villager-ready.mp3"), path.join(s, "ageofempires2", "unit-created.mp3")],
-        question: [path.join(s, "ageofempires2", "town-bell.mp3"), path.join(s, "ageofempires2", "under-attack.mp3")],
-      };
-    case "redalert2":
-      return {
-        done: [path.join(s, "redalert2", "incoming-transmission.mp3"), path.join(s, "redalert2", "redalert.mp3")],
-        question: [path.join(s, "redalert2", "klaxxon.mp3"), path.join(s, "redalert2", "alarm.mp3")],
-      };
-    case "custom":
-      return { done: [], question: [] };
-  }
-}
-
-// ─── Human-readable names ─────────────────────────────────────────────
 
 const PACK_LABELS: Record<string, string> = {
-  "starcraft2-terran": "⭐ StarCraft II — Terran (SCV \"Reporting for duty\")",
-  "starcraft2-protoss": "⭐ StarCraft II — Protoss (Ethereal chime)",
-  "starcraft2-zerg": "  StarCraft II — Zerg",
-  "warcraft3-human": "⭐ Warcraft III — Human (Peasant \"Ready to work\")",
-  "warcraft3-orc": "⭐ Warcraft III — Orc Peon",
-  "warcraft3-nightelf": "  Warcraft III — Night Elf (Wisp)",
-  "warcraft3-undead": "  Warcraft III — Undead",
-  "ageofempires2": "⭐ Age of Empires II — Villager + Town Bell",
-  "redalert2": "⭐ Red Alert 2 — Klaxxon + Incoming Transmission",
-  "custom": "Custom (your own files)",
+	"starcraft2-terran": '⭐ StarCraft II — Terran (SCV "Reporting for duty")',
+	"starcraft2-protoss": "⭐ StarCraft II — Protoss (Ethereal chime)",
+	"starcraft2-zerg": "  StarCraft II — Zerg",
+	"warcraft3-human": '⭐ Warcraft III — Human (Peasant "Ready to work")',
+	"warcraft3-orc": "⭐ Warcraft III — Orc Peon",
+	"warcraft3-nightelf": "  Warcraft III — Night Elf (Wisp)",
+	"warcraft3-undead": "  Warcraft III — Undead",
+	ageofempires2: "⭐ Age of Empires II — Villager + Town Bell",
+	redalert2: "⭐ Red Alert 2 — Klaxxon + Incoming Transmission",
+	custom: "Custom (your own files)",
 };
 
-// ─── Sound Player ─────────────────────────────────────────────────────
+// ─── Module-level state ───────────────────────────────────────────────
 
-let pendingQuestionTool = false;
+let _mapper: EventMapper | null = null;
 
-let _ffplayPath: string | null = null;
+// ponytail: shared beat + agent counter for rhythm mode.
+// Upgrade: replace simple counter with proper conductor when
+// multiple concurrent subagents need phase-locked audio.
+let _beat = 0;
+let _activeAgents = 0;
+let _rhythmConfig = { enabled: false, bpm: 120 };
 
-/**
- * Resolve ffplay path, caching the result.
- * Checks PATH, then common install locations.
- */
-function resolveFfplay(): string | null {
-  if (_ffplayPath !== null) return _ffplayPath;
-
-  // Check if ffplay is on PATH
-  try {
-    execSync("ffplay -version", { stdio: "ignore", windowsHide: true });
-    _ffplayPath = "ffplay";
-    return _ffplayPath;
-  } catch {
-    // Not on PATH
-  }
-
-  // Common Windows install paths
-  const candidates = [
-    "C:\\Program Files\\ffmpeg\\bin\\ffplay.exe",
-    "C:\\Program Files\\ffmpeg\\ffplay.exe",
-    "C:\\ffmpeg\\bin\\ffplay.exe",
-    path.join(os.homedir(), "scoop", "apps", "ffmpeg", "current", "bin", "ffplay.exe"),
-  ];
-
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      _ffplayPath = c;
-      return _ffplayPath;
-    }
-  }
-
-  _ffplayPath = null;
-  return null;
+export function getMapper(): EventMapper | null {
+	return _mapper;
 }
 
-/**
- * Play an audio file using ffplay (no window, no UI, cross-platform).
- * Falls back to ffmpeg decode → PowerShell SoundPlayer for WAV if ffplay unavailable.
- */
-function playAudioFile(filePath: string): void {
-  if (!filePath || !fs.existsSync(filePath)) return;
-  const absPath = path.resolve(filePath);
-
-  const ffplay = resolveFfplay();
-  if (ffplay) {
-    const escapedPath = absPath.replace(/"/g, '\\"');
-    exec(
-      `"${ffplay}" -nodisp -autoexit -loglevel quiet "${escapedPath}"`,
-      { windowsHide: true },
-      () => { /* fire-and-forget */ }
-    );
-    return;
-  }
-
-  // Fallback: decode with ffmpeg → pipe to PowerShell SoundPlayer (WAV only)
-  if (absPath.endsWith(".mp3") || absPath.endsWith(".wav")) {
-    exec(
-      `powershell -NoProfile -Command "$p='${absPath.replace(/'/g, "''")}'; try { if($p -match '\\.mp3$') { $f=[System.IO.Path]::GetTempFileName()+'.wav'; & ffmpeg -i \"$p\" -y \"$f\" 2>$null; (New-Object Media.SoundPlayer \"$f\").PlaySync(); Remove-Item \"$f\" } else { (New-Object Media.SoundPlayer \"$p\").PlaySync() } } catch {}"`,
-      { windowsHide: true },
-      () => { /* fire-and-forget */ }
-    );
-  }
-}
-
-// ─── Init: warn if no ffmpeg found ─────────────────────────────────────
-
-if (!resolveFfplay()) {
-  try {
-    execSync("ffmpeg -version", { stdio: "ignore", windowsHide: true });
-  } catch {
-    // No ffmpeg needed — will fall back to PowerShell SoundPlayer for WAV
-  }
-}
-
-/**
- * Play the appropriate sound based on config and context
- */
-function playSound(type: "done" | "question", config: AudioConfig): void {
-  if (!config.enabled) return;
-
-  if (config.soundPack === "custom") {
-    const file = type === "done" ? config.customDoneFile : config.customQuestionFile;
-    if (file) playAudioFile(file);
-    return;
-  }
-
-  const mapping = getSoundMapping(config.soundPack);
-  const candidates = type === "done" ? mapping.done : mapping.question;
-
-  // Pick first existing file
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      playAudioFile(candidate);
-      return;
-    }
-  }
-
-  // If no files exist, fall back silently (files weren't downloaded)
-}
-
-// ─── Extension Entry ──────────────────────────────────────────────────
+// ─── Extension entry ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  loadConfig();
+	const config = loadConfig();
+	const player = getBestPlayer();
 
-  // ── Register /audio command ──────────────────────────────────────────
-  pi.registerCommand("audio", {
-    description: "Configure audio alerts (sound pack, toggle, test sounds)",
-    handler: async (_args, ctx) => {
-      const current = loadConfig();
+	// ── Expose for other extensions ──────────────────────────────────
+	// Other extensions can call:
+	//   pi.sendMessage("/audio:play /path/to/file.mp3")
+	//   pi.events.emit("audio:play", { file: "/path/to/file.mp3" })
+	//   pi.events.on("audio:detection:clap", handler)
 
-      /**
-       * Show the pack detail view — list all sound files in the current pack
-       * with preview options, plus back/exit navigation.
-       */
-      async function showPackDetail(): Promise<"back" | "exit" | undefined> {
-        const mapping = getSoundMapping(current.soundPack);
-        const packLabel = PACK_LABELS[current.soundPack] || current.soundPack;
+	// Register inter-extension event listener for "audio:play"
+	if (pi.events) {
+		pi.events.on("audio:play", (data: unknown) => {
+			const d = data as { file?: string; volume?: number } | undefined;
+			if (d?.file) {
+				player.play(d.file, { volume: d.volume });
+			}
+		});
+	}
 
-        // Build sound preview entries
-        const soundEntries: { id: string; label: string; type: "done" | "question"; idx: number }[] = [];
+	// ── Create EventMapper (the core abstraction) ────────────────────
+	_mapper = createEventMapper(pi, player, config);
 
-        for (const [type, files] of Object.entries(mapping) as ["done" | "question", string[]][]) {
-          for (let i = 0; i < files.length; i++) {
-            const fname = path.basename(files[i]);
-            const exists = fs.existsSync(files[i]);
-            const existsMark = exists ? "" : " ⚠️";
-            soundEntries.push({
-              id: `preview-${type}-${i}`,
-              label: `  ▶️ ${type === "done" ? "Done" : "Question?"}: ${fname}${existsMark}`,
-              type,
-              idx: i,
-            });
-          }
-        }
+	// Seed legacy file paths for backward compat
+	const legacyMapping = getLegacyMapping(
+		(config.soundPack as LegacySoundPack) ?? "ageofempires2",
+	);
+	const doneFiles =
+		config.soundPack === "custom" && config.customDoneFile
+			? [config.customDoneFile]
+			: legacyMapping.done;
+	const questionFiles =
+		config.soundPack === "custom" && config.customQuestionFile
+			? [config.customQuestionFile]
+			: legacyMapping.question;
+	_mapper.setLegacyFiles(doneFiles, questionFiles);
 
-        const options = [
-          ...soundEntries.map((e) => e.label),
-          "───",
-          "⬅️ Back to packs",
-          "⬅️ Exit",
-        ];
+	// Legacy pending-Question tracker (for the "don't play done after question" rule)
+	let pendingQuestionTool = false;
 
-        const selected = await ctx.ui.select(
-          `🎮 ${packLabel}`,
-          options,
-        );
-        if (!selected) return "back";
+	// ── Track active agents for rhythm mode ──────────────────────────
+	// ponytail: simple counter, doesn't track per-agent identity.
+	// Upgrade: track agent IDs if per-agent sound profiles needed.
+	_activeAgents = 0;
+	_beat = 0;
+	_rhythmConfig = {
+		enabled: config.rhythmMode ?? false,
+		bpm: config.bpm ?? 120,
+	};
 
-        if (selected === "⬅️ Back to packs") return "back";
-        if (selected === "⬅️ Exit") return "exit";
-        if (selected === "───") return "back";
+	pi.on("tool_call", async (event: any, _ctx: any) => {
+		_activeAgents++;
+		_beat++;
 
-        // Preview a sound
-        const entry = soundEntries.find((e) => e.label === selected);
-        if (entry) {
-          const file = mapping[entry.type][entry.idx];
-          playAudioFile(file);
-          // After preview, show the same view again so user can preview more
-          return showPackDetail();
-        }
+		if (event.toolName === "ask_user") {
+			pendingQuestionTool = true;
+			const file = _rhythmConfig.enabled
+				? pickCyclic(questionFiles, _beat)
+				: pickFirstExisting(questionFiles);
+			if (file) player.play(file);
+		}
+	});
 
-        return "back";
-      }
+	pi.on("agent_end", async (_event: any, ctx: any) => {
+		_activeAgents = Math.max(0, _activeAgents - 1);
+		_beat++;
 
-      /**
-       * Main pack browser — list all packs + toggles, loop until exit.
-       */
-      async function packBrowser(): Promise<void> {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const packEntries = Object.entries(PACK_LABELS);
+		if (!ctx.hasUI && !config.backgroundMode) return;
+		if (pendingQuestionTool) {
+			pendingQuestionTool = false;
+			return; // question sound already played
+		}
+		const files = _rhythmConfig.enabled
+			? rotateFiles(doneFiles, _beat)
+			: doneFiles;
+		const file = pickFirstExisting(files);
+		if (file) player.play(file);
+	});
 
-          // Build options: toggles first, then packs, then exit
-          const toggleOptions: { id: string; label: string }[] = [
-            {
-              id: "__toggle",
-              label: `${current.enabled ? "🔊" : "🔇"} Enabled: ${current.enabled ? "ON" : "OFF"}`,
-            },
-            {
-              id: "__bg",
-              label: `🔄 Background: ${current.backgroundMode ? "ON" : "OFF"}`,
-            },
-            {
-              id: "__path",
-              label: "📁 Config path",
-            },
-          ];
+	// ── /audio command (keeps existing UI, now also shows new features) ──
 
-          const packListOptions = packEntries.map(([key, label]) => ({
-            id: key,
-            label: `${key === current.soundPack ? "●" : "○"} ${label}`,
-          }));
+	pi.registerCommand("audio", {
+		description: "Configure audio alerts (sound pack, toggle, custom mappings)",
+		handler: async (_args: string, ctx: any) => {
+			const current = loadConfig();
+			const nconf = current; // mutable reference
 
-          if (current.soundPack === "custom") {
-            packListOptions.push({
-              id: "__custom-done",
-              label: `  Custom done: ${current.customDoneFile || "(not set)"}`,
-            });
-            packListOptions.push({
-              id: "__custom-question",
-              label: `  Custom question: ${current.customQuestionFile || "(not set)"}`,
-            });
-          }
+			async function showPackDetail(): Promise<"back" | "exit" | undefined> {
+				const mapping = getLegacyMapping(
+					(nconf.soundPack as LegacySoundPack) ?? "ageofempires2",
+				);
+				const packLabel = PACK_LABELS[nconf.soundPack ?? ""] || nconf.soundPack;
 
-          const navOptions = [
-            { id: "__exit", label: "⬅️ Exit" },
-          ];
+				const soundEntries: {
+					id: string;
+					label: string;
+					type: "done" | "question";
+					idx: number;
+				}[] = [];
 
-          const allOptions = [...toggleOptions, "───" as any, ...packListOptions, "───" as any, ...navOptions].map(
-            (o: any) => (typeof o === "string" ? o : o.label),
-          );
+				for (const [type, files] of Object.entries(mapping) as [
+					"done" | "question",
+					string[],
+				][]) {
+					for (let i = 0; i < files.length; i++) {
+						const fname = path.basename(files[i]);
+						const exists = fs.existsSync(files[i]);
+						const existsMark = exists ? "" : " ⚠️";
+						soundEntries.push({
+							id: `preview-${type}-${i}`,
+							label: `  ▶️ ${type === "done" ? "Done" : "Question?"}: ${fname}${existsMark}`,
+							type,
+							idx: i,
+						});
+					}
+				}
 
-          const selected = await ctx.ui.select(
-            "🎮 Audio Alerts",
-            allOptions as string[],
-          );
-          if (!selected) return; // Escape = exit
+				const options = [
+					...soundEntries.map((e) => e.label),
+					"───",
+					"⬅️ Back to packs",
+					"⬅️ Exit",
+				];
 
-          // Find the action
-          const toggleMatch = toggleOptions.find((o) => o.label === selected);
-          if (toggleMatch) {
-            switch (toggleMatch.id) {
-              case "__toggle":
-                current.enabled = !current.enabled;
-                saveConfig(current);
-                ctx.ui.notify(
-                  `Audio alerts ${current.enabled ? "enabled ✅" : "disabled ❌"}`,
-                  "info",
-                );
-                if (current.enabled) playSound("done", loadConfig());
-                continue;
-              case "__bg":
-                current.backgroundMode = !current.backgroundMode;
-                saveConfig(current);
-                ctx.ui.notify(`Background mode ${current.backgroundMode ? "on" : "off"}`, "info");
-                continue;
-              case "__path":
-                ctx.ui.notify(`Config: ${getConfigPath()}\nSounds: ${RTS_SOUNDS_DIR}`, "info");
-                continue;
-            }
-          }
+				const selected = await ctx.ui.select(`🎮 ${packLabel}`, options);
+				if (!selected) return "back";
+				if (selected === "⬅️ Back to packs") return "back";
+				if (selected === "⬅️ Exit") return "exit";
+				if (selected === "───") return "back";
 
-          // Check exit
-          const navMatch = navOptions.find((o) => o.label === selected);
-          if (navMatch) return;
+				const entry = soundEntries.find((e) => e.label === selected);
+				if (entry) {
+					const file = mapping[entry.type][entry.idx];
+					if (file && fs.existsSync(file)) {
+						player.play(file);
+					}
+					return showPackDetail();
+				}
 
-          // Separator
-          if (selected === "───") continue;
+				return "back";
+			}
 
-          // Custom file settings
-          const customMatch = [
-            { id: "__custom-done", label: `  Custom done: ${current.customDoneFile || "(not set)"}` },
-            { id: "__custom-question", label: `  Custom question: ${current.customQuestionFile || "(not set)"}` },
-          ].find((o) => o.label === selected);
-          if (customMatch) {
-            const isDone = customMatch.id === "__custom-done";
-            const prompt = isDone ? "Path to 'done' sound file:" : "Path to 'question' sound file:";
-            const currentVal = isDone ? current.customDoneFile : current.customQuestionFile;
-            const p = await ctx.ui.input(prompt, currentVal || "");
-            if (p) {
-              if (fs.existsSync(p)) {
-                if (isDone) current.customDoneFile = p;
-                else current.customQuestionFile = p;
-                saveConfig(current);
-                ctx.ui.notify("Custom sound set", "info");
-                playAudioFile(p);
-              } else {
-                ctx.ui.notify("File not found", "error");
-              }
-            }
-            continue;
-          }
+			async function packBrowser(): Promise<void> {
+				while (true) {
+					const packEntries = Object.entries(PACK_LABELS);
 
-          // Find by matching the pack key in the label
-          const packMatch = packListOptions.find((o) => o.label === selected);
-          if (packMatch) {
-            const key = packMatch.id;
-            if (key === current.soundPack) {
-              // Already on this pack → show pack detail
-              const result = await showPackDetail();
-              if (result === "exit") return;
-              // "back" stays in the pack browser loop
-            } else {
-              // Switch to this pack
-              current.soundPack = key as SoundPack;
-              saveConfig(current);
-              ctx.ui.notify(`Sound pack: ${PACK_LABELS[key]}`, "info");
-              playSound("done", loadConfig());
-              // Stay in pack browser to show updated view
-            }
-          }
-        }
-      }
+					const toggleOptions: { id: string; label: string }[] = [
+						{
+							id: "__toggle",
+							label: `${nconf.enabled ? "🔊" : "🔇"} Enabled: ${nconf.enabled ? "ON" : "OFF"}`,
+						},
+						{
+							id: "__bg",
+							label: `🔄 Background: ${nconf.backgroundMode ? "ON" : "OFF"}`,
+						},
+						{
+							id: "__mappings",
+							label: "🔗 Custom event mappings",
+						},
+						{
+							id: "__detectors",
+							label: "🎤 Audio input detectors",
+						},
+						{
+							id: "__rhythm",
+							label: `${nconf.rhythmMode ? "🥁" : "▫️"} Rhythm: ${nconf.rhythmMode ? `ON (${nconf.bpm ?? 120} BPM)` : "OFF"}`,
+						},
+						{
+							id: "__path",
+							label: "📁 Config path",
+						},
+					];
 
-      await packBrowser();
-    },
-  });
+					const packListOptions = packEntries.map(([key, label]) => ({
+						id: key,
+						label: `${key === nconf.soundPack ? "●" : "○"} ${label}`,
+					}));
 
-  // ── Detect AI asking a question → play warning sound ────────────────
-  pi.on("tool_call", async (event, _ctx) => {
-    if (event.toolName === "ask_user") {
-      pendingQuestionTool = true;
-      playSound("question", loadConfig());
-    }
-  });
+					if (nconf.soundPack === "custom") {
+						packListOptions.push({
+							id: "__custom-done",
+							label: `  Custom done: ${nconf.customDoneFile || "(not set)"}`,
+						});
+						packListOptions.push({
+							id: "__custom-question",
+							label: `  Custom question: ${nconf.customQuestionFile || "(not set)"}`,
+						});
+					}
 
-  pi.on("tool_call", async (event) => {
-    if (
-      !pendingQuestionTool &&
-      (event.toolName.includes("ask") ||
-       event.toolName.includes("question") ||
-       event.toolName.includes("clarify"))
-    ) {
-      if (event.toolName !== "ask_user") {
-        pendingQuestionTool = true;
-        playSound("question", loadConfig());
-      }
-    }
-  });
+					const navOptions = [{ id: "__exit", label: "⬅️ Exit" }];
 
-  // ── AI finished responding → play "done" sound ───────────────────────
-  pi.on("agent_end", async (_event, ctx) => {
-    if (!ctx.hasUI && !loadConfig().backgroundMode) return;
+					const allOptions = [
+						...toggleOptions,
+						"───" as any,
+						...packListOptions,
+						"───" as any,
+						...navOptions,
+					].map((o: any) => (typeof o === "string" ? o : o.label));
 
-    const cfg = loadConfig();
-    if (!pendingQuestionTool) {
-      playSound("done", cfg);
-    }
-    pendingQuestionTool = false;
-  });
+					const selected = await ctx.ui.select("🎮 Audio Alerts", allOptions);
+					if (!selected) return;
 
-  // ── Widget on session start ──────────────────────────────────────────
-  pi.on("session_start", async (_event, ctx) => {
-    if (!ctx.hasUI) return;
-    const cfg = loadConfig();
-    if (cfg.enabled) {
-      ctx.ui.setWidget("audio-alerts", [
-        `🎮 ${PACK_LABELS[cfg.soundPack] || cfg.soundPack}`,
-        `   ${cfg.enabled ? "🔊" : "🔇"} | /audio to change`,
-      ]);
-    }
-  });
+					const toggleMatch = toggleOptions.find((o) => o.label === selected);
+					if (toggleMatch) {
+						switch (toggleMatch.id) {
+							case "__toggle":
+								nconf.enabled = !nconf.enabled;
+								saveConfig(nconf);
+								ctx.ui.notify(
+									`Audio alerts ${nconf.enabled ? "enabled ✅" : "disabled ❌"}`,
+									"info",
+								);
+								continue;
+							case "__bg":
+								nconf.backgroundMode = !nconf.backgroundMode;
+								saveConfig(nconf);
+								ctx.ui.notify(
+									`Background mode ${nconf.backgroundMode ? "on" : "off"}`,
+									"info",
+								);
+								continue;
+							case "__mappings":
+								await showMappingsMenu(ctx, nconf, player);
+								continue;
+							case "__detectors":
+								await showDetectorsMenu(ctx, nconf);
+								continue;
+							case "__path":
+								ctx.ui.notify(
+									`Config: ${path.join(os.homedir(), ".pi", "agent", "audio-alerts.yaml")}\nSounds: ${SOUNDS_DIR}`,
+									"info",
+								);
+								continue;
+						}
+					}
+
+					const navMatch = navOptions.find((o) => o.label === selected);
+					if (navMatch) return;
+
+					if (selected === "───") continue;
+
+					const customMatch = [
+						{
+							id: "__custom-done",
+							label: `  Custom done: ${nconf.customDoneFile || "(not set)"}`,
+						},
+						{
+							id: "__custom-question",
+							label: `  Custom question: ${nconf.customQuestionFile || "(not set)"}`,
+						},
+					].find((o) => o.label === selected);
+					if (customMatch) {
+						const isDone = customMatch.id === "__custom-done";
+						const prompt = isDone
+							? "Path to 'done' sound file:"
+							: "Path to 'question' sound file:";
+						const currentVal = isDone
+							? nconf.customDoneFile
+							: nconf.customQuestionFile;
+						const p = await ctx.ui.input(prompt, currentVal || "");
+						if (p) {
+							if (fs.existsSync(p)) {
+								if (isDone) nconf.customDoneFile = p;
+								else nconf.customQuestionFile = p;
+								saveConfig(nconf);
+								ctx.ui.notify("Custom sound set", "info");
+								player.play(p);
+							} else {
+								ctx.ui.notify("File not found", "error");
+							}
+						}
+						continue;
+					}
+
+					const packMatch = packListOptions.find((o) => o.label === selected);
+					if (packMatch) {
+						const key = packMatch.id;
+						if (key === nconf.soundPack) {
+							const result = await showPackDetail();
+							if (result === "exit") return;
+						} else {
+							nconf.soundPack = key as LegacySoundPack;
+							saveConfig(nconf);
+							// Update legacy files in mapper
+							const m = getLegacyMapping(key as LegacySoundPack);
+							_mapper?.setLegacyFiles(m.done, m.question);
+							ctx.ui.notify(`Sound pack: ${PACK_LABELS[key] || key}`, "info");
+							const f = pickFirstExisting(m.done);
+							if (f) player.play(f);
+						}
+					}
+				}
+			}
+
+			await packBrowser();
+		},
+	});
+
+	// ── Register LLM-callable tool for audio control ─────────────────
+	// Allows the LLM to trigger audio playback
+	pi.registerTool({
+		name: "play_audio",
+		label: "Play Audio",
+		description:
+			"Play a sound file. Path can be absolute or relative to sounds directory.",
+		promptSnippet: "Play audio sound effects for the user",
+		parameters: {
+			type: "object",
+			properties: {
+				file: {
+					type: "string",
+					description: "Path to audio file (WAV or MP3)",
+				},
+				volume: {
+					type: "number",
+					description: "Volume 0-1 (default: 1.0)",
+					minimum: 0,
+					maximum: 1,
+				},
+			},
+			required: ["file"],
+		},
+		async execute(_toolCallId: string, params: any) {
+			const file = params.file as string;
+			if (!fs.existsSync(file)) {
+				return {
+					content: [{ type: "text", text: `File not found: ${file}` }],
+					isError: true,
+				};
+			}
+			player.play(file, { volume: params.volume as number | undefined });
+			return {
+				content: [{ type: "text", text: `Playing: ${path.basename(file)}` }],
+			};
+		},
+	});
+
+	// ── Session lifecycle ─────────────────────────────────────────────
+	pi.on("session_shutdown", async () => {
+		_mapper?.stopCapture();
+	});
+
+	// ── Widget (disabled — user removed status line) ─────────────────
+	// ponytail: status line widget removed per user request.
+	// Add back: pi.on("session_start", ...ctx.ui.setWidget("audio-alerts", [...]))
 }
 
-// ─── Exports for testing ───────────────────────────────────────────────
-export { resolveFfplay, playAudioFile };
+// ─── Mapping browser UI ───────────────────────────────────────────────
+
+async function showMappingsMenu(
+	ctx: any,
+	config: AudioAlertsConfig,
+	player: SoundPlayer,
+): Promise<void> {
+	while (true) {
+		const outputs = config.outputs ?? [];
+		const lines = outputs.map(
+			(o, i) =>
+				`${o.label || o.on}${o.when?.toolName ? ` (${o.when.toolName})` : ""}` +
+				` → ${Array.isArray(o.play) ? (o.play.length > 0 ? path.basename(resolveAnyPlayTarget(o.play[0]) ?? "") : "pack") : typeof o.play === "string" ? path.basename(o.play) : (o.play?.from ?? "?")}`,
+		);
+
+		const options = [
+			...(lines.length > 0 ? lines : ["  (no custom mappings)"]),
+			"───",
+			"📝 Edit YAML config directly",
+			"⬅️ Back",
+		];
+
+		const selected = await ctx.ui.select("🔗 Event → Audio Mappings", options);
+		if (!selected || selected === "⬅️ Back" || selected === "───") return;
+
+		if (selected === "📝 Edit YAML config directly") {
+			const yamlPath = path.join(
+				os.homedir(),
+				".pi",
+				"agent",
+				"audio-alerts.yaml",
+			);
+			if (fs.existsSync(yamlPath)) {
+				ctx.ui.notify(`Edit: ${yamlPath}`, "info");
+			} else {
+				ctx.ui.notify(
+					"Create a YAML config file to add custom mappings",
+					"info",
+				);
+			}
+			// Show the config path, user can edit externally
+		}
+	}
+}
+
+// ─── Detectors menu UI ────────────────────────────────────────────────
+
+async function showDetectorsMenu(
+	ctx: any,
+	config: AudioAlertsConfig,
+): Promise<void> {
+	while (true) {
+		const inputs = config.inputs ?? [];
+		const lines = inputs.map(
+			(i, idx) =>
+				`${idx + 1}. ${i.type} → emit "${i.emit}"` +
+				(i.label ? ` (${i.label})` : ""),
+		);
+
+		const isRunning = _mapper?.isCapturing();
+		const statusLine = `🎤 Capture: ${isRunning ? "● RUNNING" : "○ STOPPED"}`;
+
+		const options = [
+			statusLine,
+			...(lines.length > 0 ? lines : ["  (no detectors configured)"]),
+			"───",
+			...(isRunning ? ["⏹ Stop capture"] : ["▶️ Start capture"]),
+			"⬅️ Back",
+		];
+
+		const selected = await ctx.ui.select("🎤 Audio Input Detectors", options);
+		if (!selected || selected === "⬅️ Back" || selected === "───") return;
+
+		if (selected === "⏹ Stop capture") {
+			_mapper?.stopCapture();
+			ctx.ui.notify("Capture stopped", "info");
+			continue;
+		}
+		if (selected === "▶️ Start capture") {
+			const ok = _mapper?.startCapture();
+			ctx.ui.notify(
+				ok ? "Capture started ✅" : "No mic tool found ❌",
+				ok ? "info" : "error",
+			);
+		}
+	}
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+import * as os from "node:os";
+
+function pickFirstExisting(files: string[]): string | null {
+	for (const f of files) {
+		if (fs.existsSync(f)) return f;
+	}
+	return null;
+}
+
+function resolveAnyPlayTarget(t: unknown): string | null {
+	if (typeof t === "string") return t;
+	return null;
+}
+
+// ─── Exports for testing ──────────────────────────────────────────────
+export { pickFirstExisting };

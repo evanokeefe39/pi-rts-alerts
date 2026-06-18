@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/evanokeefe39/pi-rts-alerts/discussions
+    about: Ask questions, share configurations, or discuss ideas.
+  - name: 📖 README
+    url: https://github.com/evanokeefe39/pi-rts-alerts#readme
+    about: Check the README for installation and usage instructions first.
