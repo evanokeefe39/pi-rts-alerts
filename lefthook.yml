@@ -1,0 +1,29 @@
+# ─── Lefthook Git Hooks ───────────────────────────────────────────────
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    typecheck:
+      glob: "src/**/*.ts"
+      run: npx tsc --noEmit
+      stage_fixed: false
+    format:
+      glob: "*.{ts,json,md,mjs,yml}"
+      run: npx @biomejs/biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: npm run typecheck
+    test:
+      run: npm test
+    format:
+      run: npx @biomejs/biome check --no-errors-on-unmatched .

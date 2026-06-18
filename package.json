@@ -1,64 +1,122 @@
 {
-  "name": "pi-rts-alerts",
-  "version": "1.0.0",
-  "private": false,
-  "description": "Pi extension that plays iconic RTS game sounds (Age of Empires 2, StarCraft II, Warcraft III, Red Alert 2) on AI lifecycle events using ffplay — no windows, no popups",
-  "keywords": [
-    "pi",
-    "pi-package",
-    "pi-extension",
-    "audio",
-    "notifications",
-    "rts",
-    "warcraft",
-    "starcraft",
-    "age-of-empires",
-    "red-alert",
-    "ffmpeg",
-    "ffplay"
-  ],
-  "homepage": "https://github.com/evanokeefe39/pi-rts-alerts#readme",
-  "bugs": {
-    "url": "https://github.com/evanokeefe39/pi-rts-alerts/issues"
-  },
-  "license": "MIT",
-  "author": "Evan O'Keefe (https://github.com/evanokeefe39)",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/evanokeefe39/pi-rts-alerts.git"
-  },
-  "type": "module",
-  "files": [
-    "src",
-    "scripts",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "install:sounds": "node scripts/download-sounds.mjs",
-    "install:types": "node scripts/link-types.mjs",
-    "postinstall": "node scripts/postinstall.mjs",
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
-    "build": "tsc",
-    "prepublishOnly": "npm run typecheck"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "typescript": "^5.8.0",
-    "vitest": "^4.0.0"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "pi": {
-    "extensions": [
-      "./src/extension.ts"
-    ]
-  }
+	"name": "pi-rts-alerts",
+	"version": "1.0.0",
+	"private": false,
+	"description": "Pi extension that plays iconic RTS game sounds (Age of Empires 2, StarCraft II, Warcraft III, Red Alert 2) on AI lifecycle events using ffplay — no windows, no popups",
+	"keywords": [
+		"pi",
+		"pi-package",
+		"pi-extension",
+		"audio",
+		"notifications",
+		"rts",
+		"warcraft",
+		"starcraft",
+		"age-of-empires",
+		"red-alert",
+		"ffmpeg",
+		"ffplay"
+	],
+	"homepage": "https://github.com/evanokeefe39/pi-rts-alerts#readme",
+	"bugs": {
+		"url": "https://github.com/evanokeefe39/pi-rts-alerts/issues"
+	},
+	"license": "MIT",
+	"author": "Evan O'Keefe (https://github.com/evanokeefe39)",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/evanokeefe39/pi-rts-alerts.git"
+	},
+	"type": "module",
+	"files": [
+		"src",
+		"scripts",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"install:sounds": "node scripts/download-sounds.mjs",
+		"install:types": "node scripts/link-types.mjs",
+		"postinstall": "node scripts/postinstall.mjs",
+		"test": "vitest run --passWithNoTests",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"lint": "tsc --noEmit",
+		"format": "npx @biomejs/biome format --write .",
+		"format:check": "npx @biomejs/biome format .",
+		"check": "npm run typecheck && npm run format:check && npm test",
+		"build": "tsc",
+		"prepublishOnly": "npm run check",
+		"commit": "cz",
+		"commitlint": "commitlint",
+		"release": "semantic-release",
+		"prepare": "lefthook install"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.0",
+		"@commitlint/cli": "^19.8.0",
+		"@commitlint/config-conventional": "^19.8.0",
+		"@semantic-release/changelog": "^6.0.3",
+		"@semantic-release/commit-analyzer": "^13.0.1",
+		"@semantic-release/git": "^10.0.1",
+		"@semantic-release/github": "^12.0.6",
+		"@semantic-release/npm": "^13.1.5",
+		"@semantic-release/release-notes-generator": "^14.1.0",
+		"@types/js-yaml": "^4.0.9",
+		"@types/node": "^22.0.0",
+		"commitizen": "^4.3.1",
+		"cz-conventional-changelog": "^3.3.0",
+		"lefthook": "^2.1.6",
+		"semantic-release": "^25.0.3",
+		"typescript": "^5.8.0",
+		"vitest": "^4.0.0"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"config": {
+		"commitizen": {
+			"path": "./node_modules/cz-conventional-changelog"
+		}
+	},
+	"release": {
+		"repositoryUrl": "https://github.com/evanokeefe39/pi-rts-alerts.git",
+		"branches": [
+			"main"
+		],
+		"plugins": [
+			"@semantic-release/commit-analyzer",
+			"@semantic-release/release-notes-generator",
+			[
+				"@semantic-release/changelog",
+				{
+					"changelogFile": "CHANGELOG.md"
+				}
+			],
+			"@semantic-release/npm",
+			"@semantic-release/github",
+			[
+				"@semantic-release/git",
+				{
+					"assets": [
+						"package.json",
+						"CHANGELOG.md",
+						"src/extension.ts"
+					],
+					"message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+				}
+			]
+		]
+	},
+	"pi": {
+		"extensions": [
+			"./src/extension.ts"
+		]
+	},
+	"dependencies": {
+		"js-yaml": "^4.2.0"
+	}
 }

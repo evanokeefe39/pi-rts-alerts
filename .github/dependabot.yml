@@ -1,0 +1,55 @@
+# ─── Dependabot Configuration ─────────────────────────────────────────
+# https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "build"
+      prefix-development: "chore"
+      include: "scope"
+    reviewers:
+      - "evanokeefe39"
+    groups:
+      commitlint:
+        patterns:
+          - "@commitlint/*"
+        update-types:
+          - "minor"
+          - "patch"
+      semantic-release:
+        patterns:
+          - "@semantic-release/*"
+          - "semantic-release"
+        update-types:
+          - "minor"
+          - "patch"
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/node"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
